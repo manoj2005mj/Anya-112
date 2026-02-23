@@ -1,0 +1,5 @@
+{
+  "name": "Anya - Emergency Dispatch",
+  "description": "AI-powered emergency response system with real-time voice, vision, and dynamic resource routing.",
+  "requestFramePermissions": ["microphone", "camera", "geolocation"]
+}
