@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { Mic, Send, Camera, Volume2, VolumeX, Globe } from 'lucide-react';
+import { Send, Camera, Volume2, VolumeX, Globe, Phone } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import clsx from 'clsx';
 import LiveMap from './LiveMap';
@@ -34,6 +34,7 @@ interface Message {
 
 interface ExtractedData {
   incident_location: string | null;
+  coordinates: [number, number] | null;
   disaster_type: string | null;
   departments_required: string[];
   severity: string | null;
@@ -42,6 +43,7 @@ interface ExtractedData {
 
 const INITIAL_DATA: ExtractedData = {
   incident_location: null,
+  coordinates: null,
   disaster_type: null,
   departments_required: [],
   severity: null,
@@ -90,10 +92,10 @@ export default function Dashboard() {
     // Auto-detect: if text contains Devanagari → Hindi, Tamil → Tamil, etc.
     const lang = /[\u0900-\u097F]/.test(text) ? 'hi-IN'
       : /[\u0B80-\u0BFF]/.test(text) ? 'ta-IN'
-      : /[\u0C00-\u0C7F]/.test(text) ? 'te-IN'
-      : /[\u0C80-\u0CFF]/.test(text) ? 'kn-IN'
-      : /[\u0D00-\u0D7F]/.test(text) ? 'ml-IN'
-      : 'en-IN';
+        : /[\u0C00-\u0C7F]/.test(text) ? 'te-IN'
+          : /[\u0C80-\u0CFF]/.test(text) ? 'kn-IN'
+            : /[\u0D00-\u0D7F]/.test(text) ? 'ml-IN'
+              : 'en-IN';
     utterance.lang = lang;
     utterance.rate = 1.0;
     utterance.pitch = 1.1;
@@ -211,6 +213,7 @@ export default function Dashboard() {
   // -----------------------------------------------------------------------
   // Voice → uses browser SpeechRecognition to convert speech to text,
   // then sends the text to /chat via REST. No WebSocket needed.
+  // Continuous recording mode for call-style interaction.
   // -----------------------------------------------------------------------
   const startRecording = () => {
     if (!SpeechRecognition) {
@@ -221,22 +224,43 @@ export default function Dashboard() {
     const recognition = new SpeechRecognition();
     recognition.lang = voiceLang;
     recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.continuous = true; // Keep recording continuously
     recognitionRef.current = recognition;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0]?.[0]?.transcript;
-      if (transcript) {
+      // Get the latest result
+      const resultIndex = event.results.length - 1;
+      const transcript = event.results[resultIndex]?.[0]?.transcript;
+      if (transcript && event.results[resultIndex].isFinal) {
         sendText(transcript);
       }
     };
 
-    recognition.onerror = () => {
-      setIsRecording(false);
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      // Don't stop recording on error, try to recover
+      if (event.error === 'no-speech') {
+        // Restart recognition if no speech detected
+        try {
+          recognition.start();
+        } catch (e) {
+          // Ignore if already started
+        }
+      } else {
+        setIsRecording(false);
+      }
     };
 
     recognition.onend = () => {
-      setIsRecording(false);
+      // Auto-restart if we're still in recording mode (call hasn't ended)
+      if (isRecording) {
+        try {
+          recognition.start();
+        } catch (e) {
+          // If we can't restart, stop recording
+          setIsRecording(false);
+        }
+      }
     };
 
     recognition.start();
@@ -244,28 +268,37 @@ export default function Dashboard() {
   };
 
   const stopRecording = () => {
-    recognitionRef.current?.stop();
     setIsRecording(false);
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+  };
+
+  const toggleCall = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
   };
 
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
   return (
-    <div className="flex h-screen bg-black text-white font-sans overflow-hidden">
+    <div className="flex h-screen bg-zinc-50 text-zinc-900 font-sans overflow-hidden">
       {/* LEFT: Dashboard & Map */}
       <div className="flex-1 flex flex-col p-4 gap-4 max-w-[60%]">
         {/* Header */}
-        <header className="flex items-center justify-between bg-zinc-900/80 p-4 rounded-2xl border border-white/10 backdrop-blur-md">
+        <header className="flex items-center justify-between bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+            <div className="w-3 h-3 bg-red-600 rounded-full animate-pulse" />
             <h1 className="text-xl font-bold tracking-tight">
-              ANYA <span className="text-zinc-500 font-normal">| 112 DISPATCH</span>
+              ANYA <span className="text-zinc-400 font-normal">| 112 DISPATCH</span>
             </h1>
           </div>
-          <div className="flex items-center gap-4 text-xs font-mono text-zinc-400">
-            <span className="flex items-center gap-1 text-green-400">
-              <span className="w-2 h-2 rounded-full bg-green-400" />
+          <div className="flex items-center gap-4 text-xs font-mono text-zinc-500">
+            <span className="flex items-center gap-1 text-green-600">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
               ONLINE
             </span>
             <span>UNIT: ALPHA-1</span>
@@ -277,26 +310,26 @@ export default function Dashboard() {
         <div className="flex-1 relative min-h-[400px]">
           <LiveMap
             location={extractedData.incident_location}
-            coordinates={extractedData.incident_location ? [28.6139, 77.209] : undefined}
+            coordinates={extractedData.coordinates || undefined}
           />
 
           {/* Overlay Stats */}
           <div className="absolute bottom-4 left-4 right-4 z-[500] grid grid-cols-3 gap-2">
-            <div className="bg-black/80 backdrop-blur-md p-3 rounded-lg border border-white/10">
-              <div className="text-xs text-zinc-500 uppercase">Location</div>
-              <div className="text-sm font-bold truncate">
+            <div className="bg-white/90 backdrop-blur-md p-3 rounded-xl border border-zinc-200 shadow-lg">
+              <div className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Location</div>
+              <div className="text-sm font-bold truncate text-zinc-800">
                 {extractedData.incident_location || 'Scanning…'}
               </div>
             </div>
-            <div className="bg-black/80 backdrop-blur-md p-3 rounded-lg border border-white/10">
-              <div className="text-xs text-zinc-500 uppercase">Type</div>
-              <div className="text-sm font-bold text-red-400">
+            <div className="bg-white/90 backdrop-blur-md p-3 rounded-xl border border-zinc-200 shadow-lg">
+              <div className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Type</div>
+              <div className="text-sm font-bold text-red-600">
                 {extractedData.disaster_type || 'Analysing…'}
               </div>
             </div>
-            <div className="bg-black/80 backdrop-blur-md p-3 rounded-lg border border-white/10">
-              <div className="text-xs text-zinc-500 uppercase">Entities</div>
-              <div className="text-xs text-zinc-300 truncate">
+            <div className="bg-white/90 backdrop-blur-md p-3 rounded-xl border border-zinc-200 shadow-lg">
+              <div className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Entities</div>
+              <div className="text-xs text-zinc-600 truncate">
                 {extractedData.extracted_entities.join(', ') || 'None detected'}
               </div>
             </div>
@@ -305,9 +338,9 @@ export default function Dashboard() {
       </div>
 
       {/* RIGHT: Chat & Controls */}
-      <div className="w-[40%] flex flex-col bg-zinc-900 border-l border-white/5">
+      <div className="w-[40%] flex flex-col bg-white border-l border-zinc-200">
         {/* Status Panel */}
-        <div className="p-6 border-b border-white/5 bg-zinc-900/50">
+        <div className="p-6 border-b border-zinc-100 bg-zinc-50/50">
           <DepartmentBadges
             departments={extractedData.departments_required}
             severity={extractedData.severity}
@@ -328,17 +361,17 @@ export default function Dashboard() {
             >
               <div
                 className={clsx(
-                  'p-3 rounded-2xl text-sm leading-relaxed',
+                  'p-3 rounded-2xl text-sm leading-relaxed shadow-sm',
                   msg.role === 'user'
                     ? 'bg-blue-600 text-white rounded-br-none'
                     : msg.role === 'system'
-                    ? 'bg-red-900/50 text-red-200 border border-red-500/20'
-                    : 'bg-zinc-800 text-zinc-200 rounded-bl-none border border-white/5'
+                      ? 'bg-red-50 text-red-700 border border-red-200'
+                      : 'bg-zinc-100 text-zinc-800 rounded-bl-none border border-zinc-200'
                 )}
               >
                 <ReactMarkdown>{msg.content}</ReactMarkdown>
               </div>
-              <span className="text-[10px] text-zinc-600 mt-1 px-1">
+              <span className="text-[10px] text-zinc-400 mt-1 px-1">
                 {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </motion.div>
@@ -348,12 +381,12 @@ export default function Dashboard() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="self-start bg-zinc-800 p-3 rounded-2xl rounded-bl-none border border-white/5"
+              className="self-start bg-zinc-100 p-3 rounded-2xl rounded-bl-none border border-zinc-200"
             >
               <div className="flex gap-1">
-                <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </motion.div>
           )}
@@ -361,13 +394,13 @@ export default function Dashboard() {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 bg-black border-t border-white/10">
-          <div className="flex items-center gap-2 bg-zinc-900 p-2 rounded-full border border-white/10 focus-within:border-blue-500/50 transition-colors">
+        <div className="p-4 bg-zinc-50 border-t border-zinc-200">
+          <div className="flex items-center gap-2 bg-white p-2 rounded-full border border-zinc-300 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-200 transition-all">
             <button
               onClick={() => { setAudioEnabled(!audioEnabled); if (audioEnabled) window.speechSynthesis.cancel(); }}
               className={clsx(
                 'p-2 rounded-full transition-colors',
-                audioEnabled ? 'text-zinc-400 hover:text-white' : 'text-red-500 hover:text-red-400'
+                audioEnabled ? 'text-zinc-400 hover:text-zinc-600' : 'text-red-500 hover:text-red-600'
               )}
               title={audioEnabled ? 'Mute voice' : 'Unmute voice'}
             >
@@ -378,14 +411,14 @@ export default function Dashboard() {
             <div className="relative">
               <button
                 onClick={() => setShowLangPicker(!showLangPicker)}
-                className="p-2 text-zinc-400 hover:text-white transition-colors rounded-full flex items-center gap-1"
+                className="p-2 text-zinc-400 hover:text-zinc-600 transition-colors rounded-full flex items-center gap-1"
                 title="Voice language"
               >
                 <Globe size={18} />
-                <span className="text-[10px] font-mono uppercase">{voiceLang.split('-')[0]}</span>
+                <span className="text-[10px] font-mono uppercase font-bold">{voiceLang.split('-')[0]}</span>
               </button>
               {showLangPicker && (
-                <div className="absolute bottom-full mb-2 left-0 bg-zinc-800 border border-white/10 rounded-xl p-1 shadow-xl z-50 min-w-[130px]">
+                <div className="absolute bottom-full mb-2 left-0 bg-white border border-zinc-200 rounded-xl p-1 shadow-2xl z-50 min-w-[130px]">
                   {VOICE_LANGUAGES.map((l) => (
                     <button
                       key={l.code}
@@ -394,7 +427,7 @@ export default function Dashboard() {
                         'w-full text-left px-3 py-1.5 text-xs rounded-lg transition-colors',
                         voiceLang === l.code
                           ? 'bg-blue-600 text-white'
-                          : 'text-zinc-300 hover:bg-zinc-700'
+                          : 'text-zinc-600 hover:bg-zinc-100'
                       )}
                     >
                       {l.label}
@@ -413,7 +446,7 @@ export default function Dashboard() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-zinc-400 hover:text-white transition-colors"
+              className="p-2 text-zinc-400 hover:text-zinc-600 transition-colors"
               title="Upload Image"
             >
               <Camera size={20} />
@@ -424,38 +457,35 @@ export default function Dashboard() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Type or hold mic to speak…"
-              className="flex-1 bg-transparent border-none outline-none text-white placeholder-zinc-600 text-sm px-2"
+              placeholder="Type or tap the call button to speak…"
+              className="flex-1 bg-transparent border-none outline-none text-zinc-800 placeholder-zinc-400 text-sm px-2"
               disabled={isRecording || isProcessing}
             />
 
             <button
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onMouseLeave={stopRecording}
-              onTouchStart={startRecording}
-              onTouchEnd={stopRecording}
+              onClick={toggleCall}
               className={clsx(
                 'p-3 rounded-full transition-all duration-200',
                 isRecording
-                  ? 'bg-red-500 text-white scale-110 shadow-[0_0_20px_rgba(239,68,68,0.5)]'
-                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                  ? 'bg-green-500 text-white scale-110 shadow-[0_0_20px_rgba(34,197,94,0.3)]'
+                  : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700'
               )}
+              title={isRecording ? 'End call' : 'Start call'}
             >
-              <Mic size={20} />
+              <Phone size={20} fill={isRecording ? 'white' : 'none'} />
             </button>
 
             <button
               onClick={handleSend}
               disabled={!inputText.trim() || isProcessing}
-              className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md shadow-blue-200"
             >
               <Send size={20} />
             </button>
           </div>
           <div className="text-center mt-2">
-            <span className="text-[10px] text-zinc-600 uppercase tracking-widest">
-              {isRecording ? 'Listening…' : `Hold mic to speak · ${VOICE_LANGUAGES.find(l => l.code === voiceLang)?.label ?? voiceLang}`}
+            <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-widest">
+              {isRecording ? `📞 Call in progress · ${VOICE_LANGUAGES.find(l => l.code === voiceLang)?.label ?? voiceLang}` : `Tap to start call · ${VOICE_LANGUAGES.find(l => l.code === voiceLang)?.label ?? voiceLang}`}
             </span>
           </div>
         </div>

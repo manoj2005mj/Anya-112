@@ -7,10 +7,10 @@ import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
 });
 
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -34,7 +34,7 @@ export default function LiveMap({ location, coordinates }: MapProps) {
   const center = coordinates ?? DEFAULT_CENTER;
 
   return (
-    <div className="h-full w-full rounded-xl overflow-hidden border border-white/10 shadow-lg relative z-0">
+    <div className="h-full w-full rounded-xl overflow-hidden border border-zinc-200 shadow-lg relative z-0">
       <MapContainer
         center={center}
         zoom={13}
@@ -43,14 +43,14 @@ export default function LiveMap({ location, coordinates }: MapProps) {
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         {coordinates && (
           <>
             <Marker position={coordinates}>
               <Popup>
                 <div className="text-black">
-                  <strong>Incident Location</strong><br/>
+                  <strong>Incident Location</strong><br />
                   {location}
                 </div>
               </Popup>

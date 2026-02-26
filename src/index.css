@@ -13,22 +13,23 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a1a; 
+  background: #f4f4f5; 
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333; 
+  background: #d4d4d8; 
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555; 
+  background: #a1a1aa; 
 }
 
 /* Leaflet Map Fixes */
 .leaflet-container {
   width: 100%;
   height: 100%;
-  background: #1a1a1a;
+  background: #f4f4f5;
   z-index: 0;
 }
+

@@ -38,17 +38,18 @@ As you gather information, you must maintain a structured record of the emergenc
 Format the JSON exactly like this structure:
 ```json
 {
-  "incident_location": "Extracted street, landmark, or coordinates",
+  "incident_location": "Extracted street or landmark",
+  "coordinates": [latitude, longitude],
   "disaster_type": "Fire, Medical, Accident, Crime, Infrastructure, etc.",
   "departments_required": ["Electrical", "Fire", "Ambulance", "Police", "Disaster Response"],
   "severity": "Low, Medium, High, Critical",
   "extracted_entities": ["list", "of", "key", "details", "like", "bleeding", "live wire"]
 }
 ```
-If you do not know a value yet, leave it as null. Do not hallucinate data.
+If you can identify the city or area, please provide approximate coordinates [lat, lng] so the dashboard map can focus on the location. If you have no idea, leave it as null.
 """
 
-MODEL = "models/gemini-2.5-flash"
+MODEL = "models/gemini-2.0-flash"
 
 
 async def get_chat_response(message: str, history: list | None = None) -> dict:

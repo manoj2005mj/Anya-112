@@ -7,8 +7,26 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.131.0",
     "google-genai>=1.64.0",
+    "langchain-core>=1.2.16",
+    "langchain-text-splitters>=1.1.1",
+    "livekit-agents>=1.4.3",
     "pydantic-settings>=2.13.1",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
     "uvicorn[standard]>=0.41.0",
+]
+
+# Optional dependencies for server2/ (LiveKit Agents backend)
+[project.optional-dependencies]
+livekit = [
+    "livekit-agents>=0.12.0",
+    "livekit>=0.20.0",
+    "livekit-plugins-openai>=0.7.0",
+    "livekit-plugins-cartesia>=0.1.0",
+    "aiohttp>=3.10.0",
+    # LangChain for RAG
+    "langchain>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-core>=0.3.0",
+    "langchain-text-splitters>=0.3.0",
 ]
