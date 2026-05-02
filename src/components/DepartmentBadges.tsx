@@ -7,6 +7,13 @@ interface DepartmentBadgesProps {
   severity: string | null;
 }
 
+const SEVERITY_WIDTH: Record<string, string> = {
+  Low: '25%',
+  Medium: '50%',
+  High: '75%',
+  Critical: '100%',
+};
+
 const BADGE_CONFIG: Record<string, { icon: any, color: string, bg: string, border: string }> = {
   'Police': { icon: Shield, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-100' },
   'Fire': { icon: Flame, color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-100' },
@@ -36,7 +43,7 @@ export default function DepartmentBadges({ departments, severity }: DepartmentBa
                       severity === 'Low' ? 'bg-blue-500' : 'bg-transparent'
               )}
               initial={{ width: '0%' }}
-              animate={{ width: severity ? '100%' : '0%' }}
+              animate={{ width: severity ? (SEVERITY_WIDTH[severity] || '0%') : '0%' }}
             />
           </div>
           <span className={clsx(

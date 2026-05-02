@@ -5,7 +5,9 @@ import ReactMarkdown from 'react-markdown';
 import clsx from 'clsx';
 import LiveMap from './LiveMap';
 import DepartmentBadges from './DepartmentBadges';
+import RoutingAlert from './RoutingAlert';
 import { sendChatMessage } from '../lib/gemini';
+import { getEmergencyRoute, RoutingResponse } from '../lib/routing';
 
 // ---------------------------------------------------------------------------
 // Voice language options (SpeechRecognition lang codes)
@@ -62,6 +64,73 @@ interface SpeechRecognitionEvent extends Event {
 const SpeechRecognition =
   (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
+function normalizeSeverity(severity: string | null | undefined): string | null {
+  if (!severity) return null;
+  const normalized = severity.trim().toLowerCase();
+  if (normalized === 'low') return 'Low';
+  if (normalized === 'medium' || normalized === 'moderate') return 'Medium';
+  if (normalized === 'high') return 'High';
+  if (normalized === 'critical' || normalized === 'severe') return 'Critical';
+  return severity.trim();
+}
+
+function normalizeDepartment(department: string): string {
+  const normalized = department.trim().toLowerCase();
+  if (normalized.includes('fire')) return 'Fire';
+  if (normalized.includes('ambulance') || normalized.includes('medical') || normalized.includes('hospital') || normalized.includes('paramedic')) return 'Ambulance';
+  if (normalized.includes('police') || normalized.includes('law')) return 'Police';
+  if (normalized.includes('electric') || normalized.includes('power') || normalized.includes('utility')) return 'Electrical';
+  if (normalized.includes('disaster') || normalized.includes('rescue') || normalized.includes('ndrf')) return 'Disaster Response';
+  return department.trim();
+}
+
+function normalizeCoordinates(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const lat = Number(value[0]);
+  const lng = Number(value[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return [lat, lng];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function normalizeExtractedData(input: Partial<ExtractedData>): Partial<ExtractedData> {
+  return {
+    incident_location: input.incident_location?.trim() || null,
+    coordinates: normalizeCoordinates(input.coordinates),
+    disaster_type: input.disaster_type?.trim() || null,
+    departments_required: uniqueStrings((input.departments_required || []).map(normalizeDepartment)),
+    severity: normalizeSeverity(input.severity),
+    extracted_entities: uniqueStrings((input.extracted_entities || []).map((entity) => entity.trim())),
+  };
+}
+
+function extractJsonPayload(text: string): Record<string, unknown> | null {
+  const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch) {
+    try {
+      return JSON.parse(fencedMatch[1]);
+    } catch {
+      return null;
+    }
+  }
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -74,6 +143,11 @@ export default function Dashboard() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [voiceLang, setVoiceLang] = useState('en-IN');
   const [showLangPicker, setShowLangPicker] = useState(false);
+
+  // Routing state
+  const [routingData, setRoutingData] = useState<RoutingResponse | null>(null);
+  const [showRoutingAlert, setShowRoutingAlert] = useState(false);
+  const routingRequestKeyRef = useRef<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -107,28 +181,66 @@ export default function Dashboard() {
   }, []);
 
   // -----------------------------------------------------------------------
+  // Fetch routing data when location and disaster type are available
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    const fetchRoutingData = async () => {
+      if (
+        extractedData.coordinates &&
+        extractedData.disaster_type
+      ) {
+        const [lat, lng] = extractedData.coordinates;
+        const nextKey = `${lat}:${lng}:${extractedData.disaster_type}`;
+        if (routingRequestKeyRef.current === nextKey) return;
+        routingRequestKeyRef.current = nextKey;
+
+        const result = await getEmergencyRoute(
+          lat,
+          lng,
+          extractedData.disaster_type
+        );
+
+        if (result) {
+          setRoutingData(result);
+          // Show alert after a short delay
+          setTimeout(() => setShowRoutingAlert(true), 500);
+        }
+      }
+    };
+
+    fetchRoutingData();
+  }, [extractedData.coordinates, extractedData.disaster_type]);
+
+  useEffect(() => {
+    if (!extractedData.coordinates || !extractedData.disaster_type) {
+      routingRequestKeyRef.current = null;
+      setRoutingData(null);
+      setShowRoutingAlert(false);
+    }
+  }, [extractedData.coordinates, extractedData.disaster_type]);
+
+  // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------
   const parseResponse = useCallback((text: string): string => {
-    const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
-    if (!jsonMatch) return text;
-
-    try {
-      const jsonData = JSON.parse(jsonMatch[1]);
+    const jsonData = extractJsonPayload(text);
+    if (jsonData) {
+      const normalized = normalizeExtractedData(jsonData as Partial<ExtractedData>);
       setExtractedData((prev) => ({
         ...prev,
-        ...jsonData,
-        departments_required: [
-          ...new Set([...(prev.departments_required || []), ...(jsonData.departments_required || [])]),
-        ],
-        extracted_entities: [
-          ...new Set([...(prev.extracted_entities || []), ...(jsonData.extracted_entities || [])]),
-        ],
+        ...normalized,
+        departments_required: uniqueStrings([
+          ...(prev.departments_required || []),
+          ...(normalized.departments_required || []),
+        ]),
+        extracted_entities: uniqueStrings([
+          ...(prev.extracted_entities || []),
+          ...(normalized.extracted_entities || []),
+        ]),
       }));
-      return text.replace(jsonMatch[0], '').trim();
-    } catch {
-      return text;
     }
+
+    return text.replace(/```(?:json)?\s*[\s\S]*?```/i, '').trim();
   }, []);
 
   const addMessage = useCallback((role: 'user' | 'model' | 'system', content: string) => {
@@ -157,7 +269,7 @@ export default function Dashboard() {
     } finally {
       setIsProcessing(false);
     }
-  }, [addMessage, parseResponse]);
+  }, [addMessage, parseResponse, speak]);
 
   // -----------------------------------------------------------------------
   // Init
@@ -311,6 +423,9 @@ export default function Dashboard() {
           <LiveMap
             location={extractedData.incident_location}
             coordinates={extractedData.coordinates || undefined}
+            facilityCoordinates={routingData?.facility.coordinates}
+            facilityName={routingData?.facility.name}
+            routeGeometry={routingData?.route.geometry || undefined}
           />
 
           {/* Overlay Stats */}
@@ -334,6 +449,14 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* ETA Badge (shown when routing is available) */}
+          {routingData && (
+            <div className="absolute top-4 left-4 z-[500] bg-green-500/90 text-white px-4 py-2 rounded-xl shadow-lg backdrop-blur-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider">ETA</div>
+              <div className="text-xl font-bold">{Math.round(routingData.route.duration_min)} min</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -490,6 +613,14 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Routing Alert Modal */}
+      <RoutingAlert
+        show={showRoutingAlert}
+        facility={routingData?.facility || null}
+        route={routingData?.route || null}
+        onClose={() => setShowRoutingAlert(false)}
+      />
     </div>
   );
 }

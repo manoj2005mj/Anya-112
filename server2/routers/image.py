@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from server2.config import get_settings
 from server2.logging_utils import ErrorComponent, get_logger
+from server2.services.incident_enrichment import enrich_incident_response
 
 logger = get_logger("anya.server2.routers.image")
 router = APIRouter(prefix="/image", tags=["image"])
@@ -120,7 +121,13 @@ async def analyze_image(
                 response_length=len(response.text) if response.text else 0,
             )
 
-            return ImageResponse(text=response.text or "")
+            enriched_text = await enrich_incident_response(
+                response.text or "",
+                file.filename or "uploaded image",
+                history=None,
+            )
+
+            return ImageResponse(text=enriched_text)
 
         finally:
             # Clean up temp file

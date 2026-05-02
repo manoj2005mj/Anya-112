@@ -61,7 +61,7 @@ from server2.config import get_settings
 from server2.events import event_broadcaster
 from server2.models import ToolEvent, ToolEventType
 from server2.agents import EmergencyDispatchAgent
-from server2.routers import alerts, racks, events, chat, image
+from server2.routers import alerts, racks, events, chat, image, routing
 from server2.rag import rag_system
 from server2.logging_utils import (
     RequestContextMiddleware,
@@ -318,6 +318,7 @@ app.include_router(racks.router)
 app.include_router(events.router)
 app.include_router(chat.router)
 app.include_router(image.router)
+app.include_router(routing.router)
 
 
 # =============================================================================

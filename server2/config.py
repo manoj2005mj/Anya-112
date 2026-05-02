@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # Gemini / Google Configuration
     # Using Gemini for LLM and RAG
     GEMINI_API_KEY: str = Field(default="")
-    GEMINI_MODEL: str = Field(default="gemini-2.0-flash-exp")  # Latest Gemini model
+    GEMINI_MODEL: str = Field(default="gemini-2.5-flash")  # Current stable Gemini model
 
     # RAG Configuration
     RAG_ENABLED: bool = Field(default=True)
@@ -64,3 +64,11 @@ def get_settings() -> Settings:
     if "settings" not in _settings_cache:
         _settings_cache["settings"] = Settings()
     return _settings_cache["settings"]
+
+
+def normalize_gemini_model_name(model_name: str) -> str:
+    """Normalize older or prefixed Gemini model names to current stable names."""
+    normalized = model_name.removeprefix("models/")
+    if normalized == "gemini-2.5":
+        return "gemini-2.5-flash"
+    return normalized

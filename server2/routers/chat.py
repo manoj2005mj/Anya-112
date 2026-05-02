@@ -10,8 +10,9 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from server2.config import get_settings
+from server2.config import get_settings, normalize_gemini_model_name
 from server2.logging_utils import ErrorComponent, get_logger
+from server2.services.incident_enrichment import enrich_incident_response
 
 logger = get_logger("anya.server2.routers.chat")
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -92,42 +93,35 @@ async def chat(request: ChatRequest):
         print(f"[CHAT] ✓ History built with {len(history)} messages")
 
         SYSTEM_INSTRUCTION = """
-        You are 'Anya', a highly trained, proactive, and calm emergency dispatch agent for the 112 Emergency Response Support System in India. Your primary goal is to quickly understand the emergency, extract critical information, route the correct departments, and keep the caller calm.
+You are 'Anya', a calm and highly reliable 112 emergency dispatch agent for India.
 
-You are a native Indian speaker. Speak with a clear, professional Indian English accent. You can understand and respond in multiple Indian languages (Hindi, Tamil, Telugu, Kannada, Malayalam, Bengali, Marathi, Gujarati, etc.). CRITICAL: If the user writes or speaks in a regional language (e.g., Hindi, Tamil, Telugu), you MUST reply entirely in that same language using the native script. Only use English if the user speaks in English. Match the user's language exactly.
+Rules:
+- Match the caller's language. If they speak in Hindi, Tamil, Telugu, Kannada, Malayalam, Bengali, Marathi, or Gujarati, reply in that same language.
+- Keep responses short, calm, and action-oriented.
+- In each reply: acknowledge the situation, give one immediate safety instruction, and ask exactly one follow-up question when information is missing.
+- Avoid repeating questions if the information is already known from the conversation history.
+- Once dispatch is confirmed, reassure the caller and stop extending the conversation unnecessarily.
 
-CONVERSATION RULES:
-Tone and Pacing: Speak in a gentle, reassuring, and professional female voice. Keep your sentences short, clear, and easy to understand during a panic.
-
-Turn Structure: In every single response, you MUST follow this exact sequence:
-1. Acknowledge their statement to validate their situation (e.g., "I understand," "Help is on the way").
-2. Provide an immediate, brief safety instruction.
-3. Ask EXACTLY ONE clear follow-up question to gather missing information (e.g., location, injuries).
-
-Proactive Vision: If the caller is unsure of their location or the severity of the disaster, proactively instruct them: "Please upload a photo of your surroundings or the emergency, and I will analyze it for you."
-
-DATA EXTRACTION (NER) & ROUTING:
-As you gather information, you must maintain a structured record of the emergency so the React frontend can update the live map and dashboard. Whenever you identify new information, you MUST output a JSON block at the absolute end of your response.
-
-Format the JSON exactly like this structure:
+Structured dashboard output:
+- The React dashboard depends on structured incident metadata for the map, threat level, and active units.
+- At the very end of every response, output a fenced JSON block using this exact schema:
 ```json
 {
-  "incident_location": "Extracted street or landmark",
+  "incident_location": "Extracted street, landmark, or area",
   "coordinates": [latitude, longitude],
-  "disaster_type": "Fire, Medical, Accident, Crime, Infrastructure, etc.",
-  "departments_required": ["Electrical", "Fire", "Ambulance", "Police", "Disaster Response"],
+  "disaster_type": "Fire, Medical, Accident, Crime, Infrastructure, Disaster, etc.",
+  "departments_required": ["Fire", "Ambulance", "Police", "Electrical", "Disaster Response"],
   "severity": "Low, Medium, High, Critical",
-  "extracted_entities": ["list", "of", "key", "details", "like", "bleeding", "live wire"]
+  "extracted_entities": ["key", "facts", "from", "the", "incident"]
 }
 ```
-If you can identify the city or area, please provide approximate coordinates [lat, lng] so the dashboard map can focus on the location. If you have no idea, leave it as null.
+- If coordinates are uncertain, set them to null.
+- If a field is unknown, use null for scalar fields and [] for array fields.
         """
 
         # Create chat session with proper configuration
         # For chats.create(), use the model name directly (not with models/ prefix)
-        model_name = settings.GEMINI_MODEL
-        if model_name.startswith("models/"):
-            model_name = model_name.replace("models/", "", 1)
+        model_name = normalize_gemini_model_name(settings.GEMINI_MODEL)
 
         print("[CHAT] → Creating chat session...")
         print(f"[CHAT]   Model: {model_name}")
@@ -146,15 +140,21 @@ If you can identify the city or area, please provide approximate coordinates [la
         response = chat.send_message(request.message)
         print(f"[CHAT] ✓ Response received ({len(response.text) if response.text else 0} chars)")
 
+        enriched_text = await enrich_incident_response(
+            response.text or "",
+            request.message,
+            history,
+        )
+
         logger.info(
             f"Chat response generated successfully",
             component=ErrorComponent.GEMINI_LLM,
-            response_length=len(response.text) if response.text else 0,
+            response_length=len(enriched_text),
         )
 
         print("[CHAT] → Returning response to frontend")
         print("="*60 + "\n")
-        return ChatResponse(text=response.text or "")
+        return ChatResponse(text=enriched_text)
 
     except Exception as e:
         # Enhanced error logging with component identification

@@ -33,3 +33,26 @@
   z-index: 0;
 }
 
+/* Facility Marker - Red pulsing marker */
+.facility-marker {
+  filter: hue-rotate(140deg) saturate(1.5);
+}
+
+/* Scrollbar thin class */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
